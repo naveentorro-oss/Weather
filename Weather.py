@@ -1,7 +1,6 @@
 import streamlit as st
 import requests
 import pandas as pd
-import time
 from datetime import datetime
 
 st.set_page_config(page_title="Live Weather", page_icon="🌦️", layout="wide")
@@ -39,15 +38,9 @@ WEATHER_CODES = {
 
 
 def fetch_json(url: str, params: dict):
-    for attempt in range(3):
-        try:
-            response = requests.get(url, params=params, timeout=(5, 60))
-            response.raise_for_status()
-            return response.json()
-        except requests.Timeout:
-            if attempt == 2:
-                raise
-            time.sleep(attempt + 1)
+    response = requests.get(url, params=params, timeout=(5, 60))
+    response.raise_for_status()
+    return response.json()
 
 
 def weather_label(code):
@@ -70,6 +63,28 @@ def format_time(value):
     if not value:
         return "N/A"
     return datetime.fromisoformat(value).strftime("%a %H:%M")
+
+
+def get_radar_image_url():
+    try:
+        radar_api = fetch_json("https://api.rainviewer.com/public/weather-maps.json", {})
+    except (requests.RequestException, ValueError):
+        return None
+
+    past = radar_api.get("radar", {}).get("past") or []
+    if not past:
+        return None
+
+    latest = past[-1]
+    path = (latest.get("path") or "").strip()
+    if not path:
+        return None
+
+    if path.startswith("http"):
+        return path
+    if path.startswith("/"):
+        return f"https://tilecache.rainviewer.com{path}/256/1_0_0.png"
+    return None
 
 
 st.title("🌦️ Live Weather")
@@ -106,8 +121,8 @@ forecast_params = {
     "latitude": lat,
     "longitude": lon,
     "current": "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,snowfall,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m",
-    "hourly": "temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,precipitation_probability,precipitation,rain,showers,snowfall,weather_code,pressure_msl,surface_pressure,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m",
-    "daily": "weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,precipitation_sum,rain_sum,showers_sum,snowfall_sum,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant",
+    "hourly": "temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,precipitation_probability,precipitation,rain,showers,snowfall,weather_code,pressure_msl,surface_pressure,cloud_cover,wind_speed_10m,wind_direction_10m",
+    "daily": "weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,precipitation_sum,rain_sum,showers_sum,snowfall_sum,wind_speed_10m_max",
     "forecast_days": 7,
     "forecast_hours": 24,
     "timezone": "auto",
@@ -164,6 +179,29 @@ st.dataframe(
     hide_index=True,
 )
 
+st.markdown("### Radar / precipitation")
+radar_url = get_radar_image_url()
+if radar_url:
+    st.image(radar_url, caption="Latest radar snapshot")
+else:
+    hourly = weather["hourly"]
+    radar_rows = []
+    for idx in range(min(len(hourly.get("time", [])), 24)):
+        value = hourly.get("precipitation", [None])[idx]
+        if value is not None:
+            radar_rows.append({
+                "Time": format_time(hourly["time"][idx]),
+                "Precipitation": float(value),
+            })
+
+    if radar_rows:
+        radar_df = pd.DataFrame(radar_rows).set_index("Time")
+        st.line_chart(radar_df)
+        peak_precip = radar_df["Precipitation"].max()
+        st.caption(f"Radar-style precipitation trend: peak {peak_precip:.1f} mm in the next 24 hours.")
+    else:
+        st.info("No precipitation radar data is available for this location.")
+
 st.markdown("### Hourly forecast")
 hourly = weather["hourly"]
 rows = []
@@ -202,4 +240,4 @@ for idx in range(len(daily.get("time", []))):
 
 st.dataframe(pd.DataFrame(forecast_rows), use_container_width=True, hide_index=True)
 
-st.caption("Weather data is powered by Open-Meteo.")
+st.caption("Weather data is powered by Open-Meteo and radar imagery from RainViewer when available.")
