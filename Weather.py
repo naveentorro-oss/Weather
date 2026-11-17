@@ -40,7 +40,7 @@ WEATHER_CODES = {
 
 def fetch_json(url: str, params: dict):
     for attempt in range(3):
-         try:
+        try:
             response = requests.get(url, params=params, timeout=(5, 60))
             response.raise_for_status()
             return response.json()
