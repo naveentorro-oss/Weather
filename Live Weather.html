@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Weather App</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #17324d;
+      background: #eaf6fb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      padding: 2rem 1rem;
+      background: linear-gradient(135deg, #0077b6, #90e0ef);
+    }
+    main { width: min(100%, 980px); margin: 0 auto; }
+    .card {
+      padding: clamp(1.25rem, 4vw, 2rem);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: 0 12px 36px rgba(0, 40, 70, 0.2);
+    }
+    .search-box { display: flex; gap: 0.6rem; margin-bottom: 1.5rem; }
+    input {
+      min-width: 0;
+      flex: 1;
+      padding: 0.75rem;
+      border: 1px solid #b6d5e3;
+      border-radius: 8px;
+      font: inherit;
+    }
+    button {
+      padding: 0.75rem 1rem;
+      border: 0;
+      border-radius: 8px;
+      background: #023e8a;
+      color: white;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+    }
+    button:hover { background: #03045e; }
+    button:disabled { cursor: wait; opacity: 0.65; }
+    h1 { margin: 0; font-size: clamp(1.5rem, 4vw, 2rem); }
+    h2 { margin: 0 0 1rem; }
+    h3 { margin: 1.75rem 0 0.75rem; }
+    .subtitle { margin: 0.35rem 0 0; color: #526b7e; }
+    .current-grid, .variable-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 0.6rem;
+    }
+    .variable {
+      padding: 0.75rem;
+      border-radius: 9px;
+      background: #eff7fa;
+      overflow-wrap: anywhere;
+    }
+    .variable-name { display: block; color: #526b7e; font-size: 0.85rem; }
+    .variable-value { display: block; margin-top: 0.2rem; font-weight: 650; }
+    details {
+      margin-top: 0.6rem;
+      border: 1px solid #d5e7ee;
+      border-radius: 9px;
+      background: #fff;
+    }
+    summary { padding: 0.85rem 1rem; cursor: pointer; font-weight: 650; }
+    details .variable-grid { padding: 0 1rem 1rem; }
+    .error { min-height: 1.4rem; margin-top: 0.75rem; color: #a31935; }
+    #radarMap { height: 420px; border-radius: 10px; background: #e5eef2; }
+    .radar-controls {
+      display: grid;
+      grid-template-columns: auto minmax(100px, 1fr) auto;
+      align-items: center;
+      gap: 0.75rem;
+      margin-top: 0.75rem;
+    }
+    .radar-controls input { width: 100%; }
+    .radar-status { min-height: 1.4rem; margin: 0.6rem 0 0; color: #526b7e; font-size: 0.9rem; }
+    .attribution { margin: 0.5rem 0 0; color: #526b7e; font-size: 0.8rem; }
+    .attribution a { color: #023e8a; }
+    .motion-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+      margin-top: 0.85rem;
+    }
+    .motion-controls label { display: inline-flex; align-items: center; gap: 0.35rem; }
+    .motion-controls input[type="checkbox"] { width: auto; margin: 0; }
+    #motionTimeline { min-width: 140px; flex: 1; }
+    .wind-arrow { color: #073b4c; font-size: 24px; font-weight: 900; line-height: 24px; text-shadow: 0 0 3px #fff, 0 0 5px #fff; transform-origin: center; }
+    .leaflet-div-icon.wind-marker { border: 0; background: transparent; }
+    .motion-legend { margin: 0.5rem 0 0; color: #526b7e; font-size: 0.8rem; }
+    @media (max-width: 480px) {
+      .search-box { flex-direction: column; }
+      #radarMap { height: 320px; }
+      .radar-controls { grid-template-columns: auto 1fr; }
+      #radarTime { grid-column: 1 / -1; grid-row: 1; }
+    }
+  </style>
+</head>
+<body>
+<main class="card">
+  <form class="search-box" id="searchForm">
+    <input type="text" id="cityInput" placeholder="Enter city name..." value="Bengaluru" aria-label="City name" required>
+    <button id="searchButton" type="submit">Search</button>
+  </form>
+
+  <section id="weatherDisplay" aria-live="polite">
+    <h1 id="cityName">Weather</h1>
+    <p class="subtitle" id="updatedAt"></p>
+    <h3>Current conditions</h3>
+    <div class="current-grid" id="currentWeather"></div>
+    <h3>Precipitation radar</h3>
+    <div id="radarMap" aria-label="Interactive precipitation radar map"></div>
+    <div class="radar-controls">
+      <button id="radarPlay" type="button" disabled>Play</button>
+      <input id="radarTimeline" type="range" min="0" max="0" value="0" aria-label="Radar frame">
+      <span id="radarTime">Loading radar…</span>
+    </div>
+    <div class="motion-controls">
+      <label><input id="cloudToggle" type="checkbox" checked disabled> Cloud cover</label>
+      <label><input id="windToggle" type="checkbox" checked disabled> Wind movement</label>
+      <button id="motionPlay" type="button" disabled>Animate forecast</button>
+      <input id="motionTimeline" type="range" min="0" max="0" value="0" aria-label="Cloud and wind forecast time" disabled>
+      <span id="motionTime">Forecast loading…</span>
+    </div>
+    <p class="motion-legend">Cloud shading and wind arrows show forecast movement across the map; wind arrows point in the direction of travel.</p>
+    <p class="radar-status" id="motionStatus" role="status">Cloud and wind forecast loading…</p>
+    <p class="radar-status" id="radarStatus" role="status">Loading radar frames…</p>
+    <p class="attribution">Radar data by <a href="https://www.rainviewer.com/" target="_blank" rel="noopener noreferrer">RainViewer</a> · Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors</p>
+    <h3>Hourly forecast</h3>
+    <div id="hourlyForecast"></div>
+    <h3>Daily forecast</h3>
+    <div id="dailyForecast"></div>
+  </section>
+  <div class="error" id="errorMsg" role="alert"></div>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const currentVariables = [
+    'temperature_2m', 'relative_humidity_2m', 'apparent_temperature', 'is_day',
+    'precipitation', 'rain', 'showers', 'snowfall', 'weather_code', 'cloud_cover',
+    'pressure_msl', 'surface_pressure', 'wind_speed_10m', 'wind_direction_10m',
+    'wind_gusts_10m'
+  ];
+  const hourlyVariables = [
+    'temperature_2m', 'relative_humidity_2m', 'dew_point_2m', 'apparent_temperature',
+    'precipitation_probability', 'precipitation', 'rain', 'showers', 'snowfall',
+    'snow_depth', 'weather_code', 'pressure_msl', 'surface_pressure', 'cloud_cover',
+    'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high', 'visibility',
+    'evapotranspiration', 'et0_fao_evapotranspiration', 'vapour_pressure_deficit',
+    'wind_speed_10m', 'wind_speed_80m', 'wind_speed_120m', 'wind_speed_180m',
+    'wind_direction_10m', 'wind_direction_80m', 'wind_direction_120m',
+    'wind_direction_180m', 'wind_gusts_10m', 'soil_temperature_0cm',
+    'soil_temperature_6cm', 'soil_temperature_18cm', 'soil_temperature_54cm',
+    'soil_moisture_0_to_1cm', 'soil_moisture_1_to_3cm', 'soil_moisture_3_to_9cm',
+    'soil_moisture_9_to_27cm', 'soil_moisture_27_to_81cm'
+  ];
+  const dailyVariables = [
+    'weather_code', 'temperature_2m_max', 'temperature_2m_min',
+    'apparent_temperature_max', 'apparent_temperature_min', 'sunrise', 'sunset',
+    'daylight_duration', 'sunshine_duration', 'uv_index_max',
+    'uv_index_clear_sky_max', 'precipitation_sum', 'rain_sum', 'showers_sum',
+    'snowfall_sum', 'precipitation_hours', 'precipitation_probability_max',
+    'precipitation_probability_min', 'precipitation_probability_mean',
+    'wind_speed_10m_max', 'wind_gusts_10m_max', 'wind_direction_10m_dominant',
+    'shortwave_radiation_sum', 'et0_fao_evapotranspiration'
+  ];
+  const variableLabels = {
+    temperature_2m: 'Temperature (2 m)',
+    relative_humidity_2m: 'Relative humidity (2 m)',
+    apparent_temperature: 'Apparent temperature',
+    is_day: 'Daylight',
+    weather_code: 'Weather code (WMO)',
+    pressure_msl: 'Pressure (mean sea level)',
+    surface_pressure: 'Surface pressure',
+    wind_speed_10m: 'Wind speed (10 m)',
+    wind_direction_10m: 'Wind direction (10 m)',
+    wind_gusts_10m: 'Wind gusts (10 m)',
+    dew_point_2m: 'Dew point (2 m)',
+    precipitation_probability: 'Precipitation probability',
+    snow_depth: 'Snow depth',
+    cloud_cover_low: 'Low-level cloud cover',
+    cloud_cover_mid: 'Mid-level cloud cover',
+    cloud_cover_high: 'High-level cloud cover',
+    evapotranspiration: 'Evapotranspiration',
+    et0_fao_evapotranspiration: 'Reference evapotranspiration (FAO)',
+    vapour_pressure_deficit: 'Vapour pressure deficit',
+    wind_speed_80m: 'Wind speed (80 m)',
+    wind_speed_120m: 'Wind speed (120 m)',
+    wind_speed_180m: 'Wind speed (180 m)',
+    wind_direction_80m: 'Wind direction (80 m)',
+    wind_direction_120m: 'Wind direction (120 m)',
+    wind_direction_180m: 'Wind direction (180 m)',
+    soil_temperature_0cm: 'Soil temperature (0 cm)',
+    soil_temperature_6cm: 'Soil temperature (6 cm)',
+    soil_temperature_18cm: 'Soil temperature (18 cm)',
+    soil_temperature_54cm: 'Soil temperature (54 cm)',
+    soil_moisture_0_to_1cm: 'Soil moisture (0–1 cm)',
+    soil_moisture_1_to_3cm: 'Soil moisture (1–3 cm)',
+    soil_moisture_3_to_9cm: 'Soil moisture (3–9 cm)',
+    soil_moisture_9_to_27cm: 'Soil moisture (9–27 cm)',
+    soil_moisture_27_to_81cm: 'Soil moisture (27–81 cm)',
+    temperature_2m_max: 'Maximum temperature (2 m)',
+    temperature_2m_min: 'Minimum temperature (2 m)',
+    apparent_temperature_max: 'Maximum apparent temperature',
+    apparent_temperature_min: 'Minimum apparent temperature',
+    sunrise: 'Sunrise',
+    sunset: 'Sunset',
+    daylight_duration: 'Daylight duration',
+    sunshine_duration: 'Sunshine duration',
+    uv_index_max: 'Maximum UV index',
+    uv_index_clear_sky_max: 'Maximum clear-sky UV index',
+    precipitation_sum: 'Total precipitation',
+    rain_sum: 'Total rain',
+    showers_sum: 'Total showers',
+    snowfall_sum: 'Total snowfall',
+    precipitation_hours: 'Precipitation hours',
+    precipitation_probability_max: 'Maximum precipitation probability',
+    precipitation_probability_min: 'Minimum precipitation probability',
+    precipitation_probability_mean: 'Mean precipitation probability',
+    wind_speed_10m_max: 'Maximum wind speed (10 m)',
+    wind_gusts_10m_max: 'Maximum wind gusts (10 m)',
+    wind_direction_10m_dominant: 'Dominant wind direction (10 m)',
+    shortwave_radiation_sum: 'Total shortwave radiation'
+  };
+  const weatherCodeDescriptions = {
+    0: 'Clear sky', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+    45: 'Fog', 48: 'Depositing rime fog', 51: 'Light drizzle',
+    53: 'Moderate drizzle', 55: 'Dense drizzle', 56: 'Light freezing drizzle',
+    57: 'Dense freezing drizzle', 61: 'Slight rain', 63: 'Moderate rain',
+    65: 'Heavy rain', 66: 'Light freezing rain', 67: 'Heavy freezing rain',
+    71: 'Slight snow fall', 73: 'Moderate snow fall', 75: 'Heavy snow fall',
+    77: 'Snow grains', 80: 'Slight rain showers', 81: 'Moderate rain showers',
+    82: 'Violent rain showers', 85: 'Slight snow showers', 86: 'Heavy snow showers',
+    95: 'Thunderstorm', 96: 'Thunderstorm with slight hail',
+    99: 'Thunderstorm with heavy hail'
+  };
+  const radarMap = window.L
+    ? L.map('radarMap', { minZoom: 2, maxZoom: 7 }).setView([20, 0], 2)
+    : null;
+  let radarLayer = null;
+  let radarFrames = [];
+  let radarFrameIndex = 0;
+  let radarTimer = null;
+  const cloudOverlay = window.L ? L.layerGroup().addTo(radarMap) : null;
+  const windOverlay = window.L ? L.layerGroup().addTo(radarMap) : null;
+  let motionForecast = [];
+  let motionTimes = [];
+  let motionTimer = null;
+  let motionFrameIndex = 0;
+
+  if (radarMap) {
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19
+    }).addTo(radarMap);
+  } else {
+    document.getElementById('radarStatus').textContent =
+      'Radar map could not load. Check your internet connection and reload the page.';
+  }
+
+  function displayLabel(variable) {
+    return variableLabels[variable] || variable.replaceAll('_', ' ');
+  }
+
+  function formatValue(variable, value) {
+    if (value === null || value === undefined) return 'Unavailable';
+    if (variable === 'is_day') return value === 1 ? 'Day' : 'Night';
+    if (variable === 'weather_code') {
+      return `${weatherCodeDescriptions[value] || 'Unknown conditions'} (${value})`;
+    }
+    if (variable === 'sunrise' || variable === 'sunset') {
+      return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(1);
+    return String(value);
+  }
+
+  function renderVariables(container, data, units, variables) {
+    container.replaceChildren();
+    for (const variable of variables) {
+      if (!(variable in data)) continue;
+      const item = document.createElement('div');
+      item.className = 'variable';
+      const name = document.createElement('span');
+      name.className = 'variable-name';
+      name.textContent = displayLabel(variable);
+      const value = document.createElement('span');
+      value.className = 'variable-value';
+      const unit = units[variable] ? ` ${units[variable]}` : '';
+      value.textContent = `${formatValue(variable, data[variable])}${unit}`;
+      item.append(name, value);
+      container.append(item);
+    }
+  }
+
+  function renderForecast(container, forecast, units, variables, limit, label) {
+    container.replaceChildren();
+    if (!forecast.time || forecast.time.length === 0) {
+      throw new Error(`The service returned no ${label.toLowerCase()} data.`);
+    }
+    const count = Math.min(forecast.time.length, limit);
+    for (let index = 0; index < count; index += 1) {
+      const details = document.createElement('details');
+      const summary = document.createElement('summary');
+      const date = new Date(forecast.time[index]);
+      summary.textContent = label === 'Hourly'
+        ? date.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric' })
+        : date.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+      const grid = document.createElement('div');
+      grid.className = 'variable-grid';
+      const values = {};
+      for (const variable of variables) {
+        if (forecast[variable]) values[variable] = forecast[variable][index];
+      }
+      renderVariables(grid, values, units, variables);
+      details.append(summary, grid);
+      container.append(details);
+    }
+  }
+
+  function showRadarFrame(index) {
+    if (!radarMap || radarFrames.length === 0) return;
+    radarFrameIndex = (index + radarFrames.length) % radarFrames.length;
+    const frame = radarFrames[radarFrameIndex];
+    if (radarLayer) radarMap.removeLayer(radarLayer);
+    radarLayer = L.tileLayer(
+      `${frame.host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`,
+      { opacity: 0.75, maxZoom: 7, maxNativeZoom: 7, attribution: 'Radar &copy; RainViewer' }
+    ).addTo(radarMap);
+    document.getElementById('radarTimeline').value = radarFrameIndex;
+    document.getElementById('radarTime').textContent =
+      new Date(frame.time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function renderMotionFrame(index) {
+    if (!radarMap || motionForecast.length === 0 || motionTimes.length === 0) return;
+    motionFrameIndex = (index + motionTimes.length) % motionTimes.length;
+    cloudOverlay.clearLayers();
+    windOverlay.clearLayers();
+
+    for (const point of motionForecast) {
+      const cloudCover = point.hourly.cloud_cover[motionFrameIndex];
+      if (cloudCover !== null && cloudCover !== undefined) {
+        L.circle([point.latitude, point.longitude], {
+          radius: 30000,
+          color: '#ffffff',
+          weight: 1,
+          opacity: 0.35,
+          fillColor: '#b8c5cc',
+          fillOpacity: 0.08 + (cloudCover / 100) * 0.4,
+          interactive: false
+        }).addTo(cloudOverlay);
+      }
+
+      const speed = point.hourly.wind_speed_10m[motionFrameIndex];
+      const direction = point.hourly.wind_direction_10m[motionFrameIndex];
+      if (speed !== null && speed !== undefined && direction !== null && direction !== undefined) {
+        const arrow = L.divIcon({
+          className: 'wind-marker',
+          html: `<span class="wind-arrow" style="transform:rotate(${(direction + 180) % 360}deg)">➤</span>`,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12]
+        });
+        L.marker([point.latitude, point.longitude], {
+          icon: arrow,
+          title: `Wind ${speed} km/h, moving toward ${Math.round((direction + 180) % 360)}°`,
+          keyboard: false
+        }).addTo(windOverlay);
+      }
+    }
+
+    const time = new Date(motionTimes[motionFrameIndex]);
+    document.getElementById('motionTimeline').value = motionFrameIndex;
+    document.getElementById('motionTime').textContent =
+      time.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  }
+
+  async function loadMotionForecast(latitude, longitude) {
+    const status = document.getElementById('motionStatus');
+    const timeline = document.getElementById('motionTimeline');
+    const playButton = document.getElementById('motionPlay');
+    const cloudToggle = document.getElementById('cloudToggle');
+    const windToggle = document.getElementById('windToggle');
+    if (!radarMap) return;
+
+    if (motionTimer) {
+      clearInterval(motionTimer);
+      motionTimer = null;
+      playButton.textContent = 'Animate forecast';
+    }
+    playButton.disabled = true;
+    timeline.disabled = true;
+    cloudToggle.disabled = true;
+    windToggle.disabled = true;
+    document.getElementById('motionTime').textContent = 'Forecast loading…';
+
+    const offsets = [-1.5, -1, -0.5, 0, 0.5, 1, 1.5];
+    const locations = [];
+    for (const latitudeOffset of offsets) {
+      for (const longitudeOffset of offsets) {
+        locations.push({
+          latitude: Math.max(-85, Math.min(85, latitude + latitudeOffset)),
+          longitude: longitude + longitudeOffset
+        });
+      }
+    }
+
+    try {
+      const params = new URLSearchParams({
+        latitude: locations.map(point => point.latitude.toFixed(3)).join(','),
+        longitude: locations.map(point => point.longitude.toFixed(3)).join(','),
+        hourly: 'cloud_cover,wind_speed_10m,wind_direction_10m',
+        forecast_hours: '24',
+        timezone: 'auto'
+      });
+      const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
+      if (!response.ok) throw new Error('Cloud and wind forecast service unavailable');
+      const results = await response.json();
+      const points = Array.isArray(results) ? results : [results];
+      if (points.length !== locations.length || !points[0].hourly || !points[0].hourly.time) {
+        throw new Error('Cloud and wind forecast returned incomplete map data.');
+      }
+
+      motionForecast = points;
+      motionTimes = points[0].hourly.time;
+      timeline.min = '0';
+      timeline.max = String(motionTimes.length - 1);
+      timeline.value = '0';
+      timeline.disabled = false;
+      playButton.disabled = false;
+      cloudToggle.disabled = false;
+      windToggle.disabled = false;
+      renderMotionFrame(0);
+      status.textContent = 'Radar shows observed precipitation; cloud and wind overlays show forecast movement.';
+    } catch (error) {
+      console.error(error);
+      status.textContent = `Cloud and wind overlays unavailable: ${error.message}`;
+      motionForecast = [];
+      motionTimes = [];
+    }
+  }
+
+  document.getElementById('cloudToggle').addEventListener('change', event => {
+    if (!radarMap) return;
+    if (event.target.checked) radarMap.addLayer(cloudOverlay);
+    else radarMap.removeLayer(cloudOverlay);
+  });
+
+  document.getElementById('windToggle').addEventListener('change', event => {
+    if (!radarMap) return;
+    if (event.target.checked) radarMap.addLayer(windOverlay);
+    else radarMap.removeLayer(windOverlay);
+  });
+
+  document.getElementById('motionTimeline').addEventListener('input', event => {
+    renderMotionFrame(Number(event.target.value));
+  });
+
+  document.getElementById('motionPlay').addEventListener('click', event => {
+    const button = event.currentTarget;
+    if (motionTimer) {
+      clearInterval(motionTimer);
+      motionTimer = null;
+      button.textContent = 'Animate forecast';
+      return;
+    }
+    button.textContent = 'Pause animation';
+    motionTimer = setInterval(() => renderMotionFrame(motionFrameIndex + 1), 1200);
+  });
+
+  async function loadRadar(latitude, longitude) {
+    const status = document.getElementById('radarStatus');
+    const playButton = document.getElementById('radarPlay');
+    if (!radarMap) return;
+
+    if (radarTimer) {
+      clearInterval(radarTimer);
+      radarTimer = null;
+      playButton.textContent = 'Play';
+    }
+    loadMotionForecast(latitude, longitude);
+    radarMap.setView([latitude, longitude], 6);
+    status.textContent = 'Loading radar frames…';
+    try {
+      const response = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+      if (!response.ok) throw new Error('Radar service unavailable');
+      const data = await response.json();
+      const frames = data.radar && data.radar.past;
+      if (!data.host || !Array.isArray(frames) || frames.length === 0) {
+        throw new Error('No radar frames are currently available.');
+      }
+
+      radarFrames = frames.map(frame => ({ ...frame, host: data.host }));
+      const timeline = document.getElementById('radarTimeline');
+      timeline.min = '0';
+      timeline.max = String(radarFrames.length - 1);
+      timeline.step = '1';
+      playButton.disabled = false;
+      showRadarFrame(radarFrames.length - 1);
+      status.textContent = 'Past precipitation radar. Use the slider or Play to view recent frames.';
+    } catch (error) {
+      console.error(error);
+      status.textContent = `Radar unavailable: ${error.message}`;
+      playButton.disabled = true;
+    }
+  }
+
+  document.getElementById('radarTimeline').addEventListener('input', event => {
+    if (radarTimer) {
+      clearInterval(radarTimer);
+      radarTimer = null;
+      document.getElementById('radarPlay').textContent = 'Play';
+    }
+    showRadarFrame(Number(event.target.value));
+  });
+
+  document.getElementById('radarPlay').addEventListener('click', event => {
+    const button = event.currentTarget;
+    if (radarTimer) {
+      clearInterval(radarTimer);
+      radarTimer = null;
+      button.textContent = 'Play';
+      return;
+    }
+    button.textContent = 'Pause';
+    radarTimer = setInterval(() => showRadarFrame(radarFrameIndex + 1), 700);
+  });
+
+  async function getWeather(city) {
+    const errorMsg = document.getElementById('errorMsg');
+    const searchButton = document.getElementById('searchButton');
+    errorMsg.textContent = '';
+    searchButton.disabled = true;
+    searchButton.textContent = 'Loading...';
+
+    try {
+      const geoRes = await fetch(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en&format=json`
+      );
+      if (!geoRes.ok) throw new Error('Geocoding service unavailable');
+      const geoData = await geoRes.json();
+
+      if (!geoData.results || geoData.results.length === 0) {
+        throw new Error('City not found. Try another name.');
+      }
+
+      const { latitude, longitude, name, country } = geoData.results[0];
+      loadRadar(latitude, longitude);
+      const params = new URLSearchParams({
+        latitude,
+        longitude,
+        current: currentVariables.join(','),
+        hourly: hourlyVariables.join(','),
+        daily: dailyVariables.join(','),
+        forecast_days: '7',
+        forecast_hours: '24',
+        timezone: 'auto'
+      });
+      const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
+      if (!weatherRes.ok) throw new Error('Weather service unavailable');
+
+      const weatherData = await weatherRes.json();
+      if (!weatherData.current || !weatherData.hourly || !weatherData.daily) {
+        throw new Error('Weather service returned incomplete data.');
+      }
+
+      document.getElementById('cityName').textContent = `${name}, ${country}`;
+      document.getElementById('updatedAt').textContent =
+        `Local time: ${new Date(weatherData.current.time).toLocaleString()}`;
+      renderVariables(
+        document.getElementById('currentWeather'),
+        weatherData.current,
+        weatherData.current_units || {},
+        currentVariables
+      );
+      renderForecast(
+        document.getElementById('hourlyForecast'),
+        weatherData.hourly,
+        weatherData.hourly_units || {},
+        hourlyVariables,
+        24,
+        'Hourly'
+      );
+      renderForecast(
+        document.getElementById('dailyForecast'),
+        weatherData.daily,
+        weatherData.daily_units || {},
+        dailyVariables,
+        7,
+        'Daily'
+      );
+    } catch (err) {
+      console.error(err);
+      errorMsg.textContent = `Error: ${err.message}`;
+    } finally {
+      searchButton.disabled = false;
+      searchButton.textContent = 'Search';
+    }
+  }
+
+  document.getElementById('searchForm').addEventListener('submit', event => {
+    event.preventDefault();
+    const city = document.getElementById('cityInput').value.trim();
+    if (!city) {
+      document.getElementById('errorMsg').textContent = 'Enter a city name.';
+      return;
+    }
+    getWeather(city);
+  });
+
+  getWeather(document.getElementById('cityInput').value.trim());
+</script>
+</body>
+</html>
