@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import pandas as pd
+import time
 from datetime import datetime
 
 st.set_page_config(page_title="Live Weather", page_icon="🌦️", layout="wide")
@@ -38,9 +39,15 @@ WEATHER_CODES = {
 
 
 def fetch_json(url: str, params: dict):
-    response = requests.get(url, params=params, timeout=20)
-    response.raise_for_status()
-    return response.json()
+    for attempt in range(3):
+         try:
+            response = requests.get(url, params=params, timeout=(5, 60))
+            response.raise_for_status()
+            return response.json()
+        except requests.Timeout:
+            if attempt == 2:
+                raise
+            time.sleep(attempt + 1)
 
 
 def weather_label(code):
