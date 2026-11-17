@@ -65,26 +65,56 @@ def format_time(value):
     return datetime.fromisoformat(value).strftime("%a %H:%M")
 
 
-def get_radar_image_url():
+def get_latest_radar_frame():
     try:
         radar_api = fetch_json("https://api.rainviewer.com/public/weather-maps.json", {})
     except (requests.RequestException, ValueError):
         return None
 
-    past = radar_api.get("radar", {}).get("past") or []
-    if not past:
+    frames = radar_api.get("radar", {}).get("past") or []
+    if not frames:
         return None
 
-    latest = past[-1]
-    path = (latest.get("path") or "").strip()
-    if not path:
+    frame = frames[-1]
+    path = (frame.get("path") or "").strip()
+    if not path.startswith("/"):
         return None
+    return path, frame.get("time")
 
-    if path.startswith("http"):
-        return path
-    if path.startswith("/"):
-        return f"https://tilecache.rainviewer.com{path}/256/1_0_0.png"
-    return None
+
+def render_radar_map(lat: float, lon: float, frame_path: str):
+    tile_url = (
+        "https://tilecache.rainviewer.com"
+        f"{frame_path}/256/{{z}}/{{x}}/{{y}}/2/1_1.png"
+    )
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>html, body, #radar-map {{ height: 100%; margin: 0; }}</style>
+</head>
+<body>
+  <div id="radar-map"></div>
+  <script>
+    const map = L.map('radar-map').setView([{lat}, {lon}], 7);
+    L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }}).addTo(map);
+    const radar = L.tileLayer('{tile_url}', {{
+      tileSize: 256,
+      opacity: 0.7,
+      maxNativeZoom: 7,
+      maxZoom: 12,
+      attribution: 'Radar &copy; RainViewer'
+    }}).addTo(map);
+    L.control.layers(null, {{'Precipitation radar': radar}}).addTo(map);
+  </script>
+</body>
+</html>"""
+    st.components.v1.html(html, height=500, scrolling=False)
 
 
 st.title("🌦️ Live Weather")
@@ -179,28 +209,16 @@ st.dataframe(
     hide_index=True,
 )
 
-st.markdown("### Radar / precipitation")
-radar_url = get_radar_image_url()
-if radar_url:
-    st.image(radar_url, caption="Latest radar snapshot")
+st.markdown("### Precipitation radar")
+radar_frame = get_latest_radar_frame()
+if radar_frame:
+    radar_path, radar_timestamp = radar_frame
+    render_radar_map(lat, lon, radar_path)
+    if radar_timestamp:
+        radar_time = datetime.fromtimestamp(radar_timestamp).strftime("%Y-%m-%d %H:%M UTC")
+        st.caption(f"Latest available RainViewer radar frame: {radar_time}. Use the map controls to zoom and toggle the radar layer.")
 else:
-    hourly = weather["hourly"]
-    radar_rows = []
-    for idx in range(min(len(hourly.get("time", [])), 24)):
-        value = hourly.get("precipitation", [None])[idx]
-        if value is not None:
-            radar_rows.append({
-                "Time": format_time(hourly["time"][idx]),
-                "Precipitation": float(value),
-            })
-
-    if radar_rows:
-        radar_df = pd.DataFrame(radar_rows).set_index("Time")
-        st.line_chart(radar_df)
-        peak_precip = radar_df["Precipitation"].max()
-        st.caption(f"Radar-style precipitation trend: peak {peak_precip:.1f} mm in the next 24 hours.")
-    else:
-        st.info("No precipitation radar data is available for this location.")
+    st.warning("Radar tiles are currently unavailable. Hourly precipitation forecast is shown below instead.")
 
 st.markdown("### Hourly forecast")
 hourly = weather["hourly"]
