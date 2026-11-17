@@ -82,11 +82,12 @@ def get_latest_radar_frame():
     return path, frame.get("time")
 
 
-def render_radar_map(lat: float, lon: float, frame_path: str):
+def render_radar_map(lat: float, lon: float, frame_path: str, city: str, cloud_cover):
     tile_url = (
         "https://tilecache.rainviewer.com"
         f"{frame_path}/256/{{z}}/{{x}}/{{y}}/2/1_1.png"
     )
+    cloud_cover_label = "N/A" if cloud_cover is None else f"{cloud_cover}%"
     html = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -110,7 +111,19 @@ def render_radar_map(lat: float, lon: float, frame_path: str):
       maxZoom: 12,
       attribution: 'Radar &copy; RainViewer'
     }}).addTo(map);
-    L.control.layers(null, {{'Precipitation radar': radar}}).addTo(map);
+    const cloudCover = L.circleMarker([{lat}, {lon}], {{
+      radius: 10,
+      color: '#ffffff',
+      weight: 2,
+      fillColor: '#4b9fe1',
+      fillOpacity: 0.9
+    }});
+    cloudCover.bindTooltip('{city}: cloud cover {cloud_cover_label}');
+    cloudCover.bindPopup('<strong>{city}</strong><br>Current cloud cover: {cloud_cover_label}');
+    L.control.layers(null, {{
+      'Precipitation radar': radar,
+      'Cloud cover at selected city': cloudCover
+    }}).addTo(map);
   </script>
 </body>
 </html>"""
@@ -213,10 +226,11 @@ st.markdown("### Precipitation radar")
 radar_frame = get_latest_radar_frame()
 if radar_frame:
     radar_path, radar_timestamp = radar_frame
-    render_radar_map(lat, lon, radar_path)
+    render_radar_map(lat, lon, radar_path, location["name"], current.get("cloud_cover"))
+    st.caption("Use the map controls to toggle the precipitation radar and the selected city's cloud-cover reading. Cloud cover is shown for the city location, not as a satellite tile layer.")
     if radar_timestamp:
         radar_time = datetime.fromtimestamp(radar_timestamp).strftime("%Y-%m-%d %H:%M UTC")
-        st.caption(f"Latest available RainViewer radar frame: {radar_time}. Use the map controls to zoom and toggle the radar layer.")
+        st.caption(f"Latest available RainViewer radar frame: {radar_time}.")
 else:
     st.warning("Radar tiles are currently unavailable. Hourly precipitation forecast is shown below instead.")
 
