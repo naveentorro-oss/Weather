@@ -1,13 +1,14 @@
 # Website
 
-This repository contains a static website and a live weather dashboard.
+This repository contains a static website and a Streamlit weather dashboard.
 
-## Run the weather dashboard with Streamlit
+## Run the app locally
 
-1. Create a Streamlit Community Cloud app from this GitHub repository.
-2. Select `main` as the branch and `streamlit_app.py` as the app file.
-3. Deploy. Streamlit installs the dependencies from `requirements.txt` and embeds the existing `Live Weather.html` dashboard.
+```bash
+pip install -r requirements.txt
+streamlit run streamlit_app.py
+```
 
-The weather dashboard uses the public Open-Meteo, RainViewer, Leaflet, and OpenStreetMap services and requires an internet connection.
+The app uses Open-Meteo to fetch current conditions, hourly forecast, daily forecast, and map data for a searched city.
 
-For the static website, open `Index.html`; its **Live Weather** navigation link opens the standalone dashboard.
+The original `Index.html` remains available for static website hosting, while the Streamlit app is the native weather dashboard for deployment.
